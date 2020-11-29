@@ -1,6 +1,7 @@
 package r3
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -9,28 +10,38 @@ import (
 )
 
 type Daemon struct {
+	renderer *prerenderer
 }
 
 func NewDaemon() *Daemon {
-	return &Daemon{}
+	return &Daemon{
+		renderer: &prerenderer{},
+	}
 }
 
 func (d *Daemon) Run(port string) {
 	r := gin.Default()
-	r.GET("/prerender", prerenderHandler)
+	r.GET("/prerender", d.prerenderHandler)
 	r.Run(port)
 }
 
-func prerenderHandler(c *gin.Context) {
-	u := c.Query("url")
-	if !isURL(u) {
-		err := errors.New("invalid prerenderer url")
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+func (d *Daemon) prerenderHandler(c *gin.Context) {
+	var opt PrerendererOption
+	if err := c.BindQuery(&opt); err != nil {
+		c.String(http.StatusBadRequest, err.Error())
+	} else if !isURL(opt.Source) {
+		c.String(http.StatusBadRequest, "invalid prerenderer source url")
+	} else {
+		if html, err := d.renderer.render(c.Request.Context(), opt); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				c.String(http.StatusRequestTimeout, "request timeout")
+			} else {
+				panic(err)
+			}
+		} else {
+			c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
+		}
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"url": u,
-	})
 }
 
 func isURL(str string) bool {
