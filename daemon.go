@@ -26,6 +26,7 @@ func NewDaemon() *Daemon {
 func (d *Daemon) Run(port string) {
 	r := gin.Default()
 	r.GET("/prerender", d.prerenderHandler)
+	r.DELETE("/prerender", d.clearCache)
 	r.Run(port)
 }
 
@@ -41,7 +42,7 @@ func (d *Daemon) prerenderHandler(c *gin.Context) {
 
 	// using cache
 	if _, found := d.cache.Get(opt.Source); found {
-		c.String(http.StatusNotModified, "")
+		c.Status(http.StatusNotModified)
 		return
 	}
 
@@ -57,10 +58,25 @@ func (d *Daemon) prerenderHandler(c *gin.Context) {
 		return
 	}
 	d.cache.Set(opt.Source, true, time.Duration(opt.Cache)*time.Second)
-	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
+	c.Data(http.StatusOK, gin.MIMEHTML, []byte(html))
 }
 
 func isURL(str string) bool {
 	u, err := url.Parse(str)
 	return err == nil && u.Scheme != "" && u.Host != ""
+}
+
+func (d *Daemon) clearCache(c *gin.Context) {
+	type Body struct {
+		Source string `json:"source" binding:"required"`
+	}
+
+	var body Body
+	if err := c.BindJSON(&body); err != nil {
+		c.String(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	d.cache.Delete(body.Source)
+	c.Status(http.StatusOK)
 }
