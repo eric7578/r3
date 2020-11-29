@@ -41,8 +41,8 @@ func (d *Daemon) prerenderHandler(c *gin.Context) {
 	}
 
 	// using cache
-	if _, found := d.cache.Get(opt.Source); found {
-		c.Status(http.StatusNotModified)
+	if htmlCache, found := d.cache.Get(opt.Source); found {
+		c.Data(http.StatusOK, gin.MIMEHTML, htmlCache.([]byte))
 		return
 	}
 
@@ -57,8 +57,9 @@ func (d *Daemon) prerenderHandler(c *gin.Context) {
 		}
 		return
 	}
-	d.cache.Set(opt.Source, true, time.Duration(opt.Cache)*time.Second)
-	c.Data(http.StatusOK, gin.MIMEHTML, []byte(html))
+	bytes := []byte(html)
+	d.cache.Set(opt.Source, bytes, time.Duration(opt.Cache)*time.Second)
+	c.Data(http.StatusOK, gin.MIMEHTML, bytes)
 }
 
 func isURL(str string) bool {
