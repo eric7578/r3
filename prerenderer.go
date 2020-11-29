@@ -11,9 +11,10 @@ import (
 
 type PrerendererOption struct {
 	Source  string `form:"source" binding:"required"`
-	Timeout int    `form:"timeout"`
+	Timeout int    `form:"timeout,default=30"`
 	Ignores string `form:"ignores"`
-	Repeat  int    `form:"repeat"`
+	Repeat  int    `form:"repeat,default=1"`
+	Cache   int    `form:"cache,default=28800"`
 }
 
 type prerenderer struct {
@@ -21,25 +22,15 @@ type prerenderer struct {
 }
 
 func (r *prerenderer) render(ctx context.Context, opt PrerendererOption) (html string, err error) {
-	if opt.Timeout == 0 {
-		opt.Timeout = 30
-	}
-	timeout := time.Duration(opt.Timeout) * time.Second
-
-	repeat := 1
-	if opt.Repeat > repeat {
-		repeat = opt.Repeat
-	}
-
 	// ignoreElements := strings.Split(opt.Ignores, ",")
 
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(opt.Timeout)*time.Second)
 	defer cancel()
 
-	for repeat > 0 {
+	for opt.Repeat > 0 {
 		html, err = r.fetchPage(ctx, opt.Source)
 		if err != nil {
-			repeat -= 1
+			opt.Repeat -= 1
 		} else {
 			break
 		}
