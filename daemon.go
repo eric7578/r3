@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,8 +17,11 @@ type Daemon struct {
 }
 
 func NewDaemon(configDir string) *Daemon {
-	r := &prerenderer{}
-	go r.watchPartial(context.TODO(), filepath.Join(configDir, "partial"))
+	r := &prerenderer{
+		configDir:   configDir,
+		metaScripts: make(map[string]string),
+	}
+	go r.watchConfigFiles(context.TODO())
 	return &Daemon{
 		cache:    cache.New(8*time.Hour, 12*time.Hour),
 		renderer: r,

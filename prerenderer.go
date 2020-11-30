@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"io/ioutil"
-	"log"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,7 +15,7 @@ import (
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/chromedp"
-	"gopkg.in/fsnotify.v1"
+	"github.com/radovskyb/watcher"
 )
 
 type PrerendererOption struct {
@@ -26,55 +27,56 @@ type PrerendererOption struct {
 
 type prerenderer struct {
 	sync.Mutex
-	metaScript string
+	configDir   string
+	metaScripts map[string]string
 }
 
-func (r *prerenderer) watchPartial(ctx context.Context, partialDir string) {
-	w, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Fatal(err)
-	}
+func (r *prerenderer) watchConfigFiles(ctx context.Context) {
+	w := watcher.New()
+	w.FilterOps(watcher.Create, watcher.Write)
 	defer w.Close()
 
-	isOp := func(event fsnotify.Event, ops ...fsnotify.Op) bool {
-		for _, op := range ops {
-			if event.Op&op == op {
-				return true
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				goto END
+			case event := <-w.Event:
+				if !event.IsDir() && filepath.Ext(event.Name()) == ".html" {
+					r.reloadMetaFile(event.Path)
+				}
 			}
 		}
-		return false
-	}
 
-	r.reloadPartial(partialDir)
+	END:
+		done <- struct{}{}
+	}()
 
-	fatal(w.Add(partialDir))
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case event, ok := <-w.Events:
-			if !ok {
-				return
-			}
-			if isOp(event, fsnotify.Write, fsnotify.Remove, fsnotify.Create) {
-				r.reloadPartial(partialDir)
-			}
-		case err, ok := <-w.Errors:
-			if !ok {
-				return
-			}
-			log.Println("error:", err)
+	fatal(w.AddRecursive(r.configDir))
+	fatal(filepath.Walk(r.configDir, func(path string, info os.FileInfo, err error) error {
+		if filepath.Ext(path) == ".html" {
+			r.reloadMetaFile(path)
 		}
-	}
+		return nil
+	}))
+	fatal(w.Start(time.Millisecond * 1000))
+	<-done
 }
 
-func (r *prerenderer) reloadPartial(partialDir string) {
+func (r *prerenderer) reloadMetaFile(metaPath string) {
 	defer r.Unlock()
 	r.Lock()
 
-	metaBytes, _ := ioutil.ReadFile(filepath.Join(partialDir, "meta.html"))
+	relPath, _ := filepath.Rel(r.configDir, metaPath)
+	urlPath := filepath.Dir(relPath)
+	if urlPath == "." {
+		urlPath = "/"
+	} else {
+		urlPath = "/" + urlPath
+	}
 
+	metaBytes, _ := ioutil.ReadFile(metaPath)
 	metaTmpl := template.Must(template.New("insertHeadMeta").Parse(jsInsertHeadMeta))
 
 	var metaBuf bytes.Buffer
@@ -84,7 +86,7 @@ func (r *prerenderer) reloadPartial(partialDir string) {
 		Meta: strings.TrimSpace(string(metaBytes)),
 	})
 
-	r.metaScript = metaBuf.String()
+	r.metaScripts[urlPath] = metaBuf.String()
 }
 
 func (r *prerenderer) render(ctx context.Context, opt PrerendererOption) (html string, err error) {
@@ -103,22 +105,30 @@ func (r *prerenderer) render(ctx context.Context, opt PrerendererOption) (html s
 	return
 }
 
-func (r *prerenderer) fetchPage(ctx context.Context, u string) (html string, err error) {
+func (r *prerenderer) fetchPage(ctx context.Context, rawurl string) (html string, err error) {
 	ct, cancel := chromedp.NewContext(ctx)
 	defer cancel()
 
 	var res string
 	var doc []cdp.NodeID
-	err = chromedp.Run(
-		ct,
-		chromedp.Navigate(u),
+	actions := []chromedp.Action{
+		chromedp.Navigate(rawurl),
 		chromedp.NodeIDs("document", &doc, chromedp.ByJSPath),
-		chromedp.EvaluateAsDevTools(r.metaScript, &res),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			html, err = dom.GetOuterHTML().WithNodeID(doc[0]).Do(ctx)
-			return err
-		}),
-	)
+		chromedp.EvaluateAsDevTools(r.metaScripts["/"], &res),
+	}
 
+	u, _ := url.Parse(rawurl)
+	metaScript := r.metaScripts[u.Path]
+	if metaScript != "" {
+		var resAdditional string
+		actions = append(actions, chromedp.EvaluateAsDevTools(metaScript, &resAdditional))
+	}
+
+	actions = append(actions, chromedp.ActionFunc(func(ctx context.Context) error {
+		html, err = dom.GetOuterHTML().WithNodeID(doc[0]).Do(ctx)
+		return err
+	}))
+
+	err = chromedp.Run(ct, actions...)
 	return
 }
