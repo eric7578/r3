@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,10 +17,12 @@ type Daemon struct {
 	renderer *prerenderer
 }
 
-func NewDaemon() *Daemon {
+func NewDaemon(configDir string) *Daemon {
+	r := &prerenderer{}
+	go r.watchPartial(context.TODO(), filepath.Join(configDir, "partial"))
 	return &Daemon{
 		cache:    cache.New(8*time.Hour, 12*time.Hour),
-		renderer: &prerenderer{},
+		renderer: r,
 	}
 }
 
@@ -69,15 +72,25 @@ func isURL(str string) bool {
 
 func (d *Daemon) clearCache(c *gin.Context) {
 	type Body struct {
-		Source string `json:"source" binding:"required"`
+		Source string `json:"source"`
 	}
 
 	var body Body
-	if err := c.BindJSON(&body); err != nil {
+	if err := c.Bind(&body); err != nil {
 		c.String(http.StatusBadRequest, err.Error())
 		return
 	}
 
-	d.cache.Delete(body.Source)
+	if body.Source == "" {
+		d.cache.Flush()
+	} else {
+		d.cache.Delete(body.Source)
+	}
 	c.Status(http.StatusOK)
+}
+
+func fatal(err error) {
+	if err != nil {
+		panic(err)
+	}
 }

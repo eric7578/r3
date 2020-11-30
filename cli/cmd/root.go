@@ -9,20 +9,22 @@ import (
 )
 
 var (
-	port string
+	port      string
+	configDir string
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "r3",
 	Short: "run r3 server",
 	Run: func(cmd *cobra.Command, args []string) {
-		d := r3.NewDaemon()
+		d := r3.NewDaemon(configDir)
 		d.Run(port)
 	},
 }
 
 func init() {
 	rootCmd.Flags().StringVar(&port, "port", ":9009", "server port")
+	rootCmd.Flags().StringVar(&configDir, "config", "", "config directory")
 }
 
 func Execute() {
