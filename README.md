@@ -1,2 +1,2 @@
 # r3
-## render redirect retry
+## render reload retry
