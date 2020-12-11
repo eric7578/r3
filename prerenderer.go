@@ -12,6 +12,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/chromedp"
@@ -27,8 +28,9 @@ type PrerendererOption struct {
 
 type prerenderer struct {
 	sync.Mutex
-	configDir   string
-	metaScripts map[string]string
+	configDir        string
+	metaScripts      map[string]string
+	exteralResources bool
 }
 
 func (r *prerenderer) watchConfigFiles(ctx context.Context) {
@@ -102,7 +104,7 @@ func (r *prerenderer) render(ctx context.Context, opt PrerendererOption) (html s
 		}
 	}
 
-	return
+	return r.postRender(html)
 }
 
 func (r *prerenderer) fetchPage(ctx context.Context, rawurl string) (html string, err error) {
@@ -131,4 +133,19 @@ func (r *prerenderer) fetchPage(ctx context.Context, rawurl string) (html string
 
 	err = chromedp.Run(ct, actions...)
 	return
+}
+
+func (r *prerenderer) postRender(html string) (string, error) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return "", err
+	}
+	if !r.exteralResources {
+		removeExternalResources(doc)
+	}
+	return doc.Html()
+}
+
+func removeExternalResources(doc *goquery.Document) {
+	doc.Find("script,link[rel='stylesheet']").Remove()
 }

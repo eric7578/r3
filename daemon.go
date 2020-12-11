@@ -9,14 +9,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type DaemonOption struct {
+	ConfigDir         string
+	ExternalResources bool
+}
+
 type Daemon struct {
 	renderer *prerenderer
 }
 
-func NewDaemon(configDir string) *Daemon {
+func NewDaemon(opt DaemonOption) *Daemon {
 	r := &prerenderer{
-		configDir:   configDir,
-		metaScripts: make(map[string]string),
+		configDir:        opt.ConfigDir,
+		metaScripts:      make(map[string]string),
+		exteralResources: opt.ExternalResources,
 	}
 	go r.watchConfigFiles(context.TODO())
 	return &Daemon{

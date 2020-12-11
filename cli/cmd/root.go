@@ -9,15 +9,19 @@ import (
 )
 
 var (
-	port      string
-	configDir string
+	port              string
+	configDir         string
+	externalResources bool
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "r3",
 	Short: "run r3 server",
 	Run: func(cmd *cobra.Command, args []string) {
-		d := r3.NewDaemon(configDir)
+		d := r3.NewDaemon(r3.DaemonOption{
+			ConfigDir:         configDir,
+			ExternalResources: externalResources,
+		})
 		d.Run(port)
 	},
 }
@@ -25,6 +29,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Flags().StringVar(&port, "port", ":9009", "server port")
 	rootCmd.Flags().StringVar(&configDir, "config", "", "config directory")
+	rootCmd.Flags().BoolVar(&externalResources, "external-resources", false, "remove any exteral resources")
 }
 
 func Execute() {
