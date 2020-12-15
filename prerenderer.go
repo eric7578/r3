@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io/ioutil"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,19 +11,11 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/chromedp"
 	"github.com/radovskyb/watcher"
 )
-
-type PrerendererOption struct {
-	Source  string `form:"source" binding:"required"`
-	Timeout int    `form:"timeout,default=30"`
-	Repeat  int    `form:"repeat,default=1"`
-	Cache   int    `form:"cache,default=28800"`
-}
 
 type prerenderer struct {
 	sync.Mutex
@@ -91,7 +82,7 @@ func (r *prerenderer) reloadMetaFile(metaPath string) {
 	r.metaScripts[urlPath] = metaBuf.String()
 }
 
-func (r *prerenderer) render(ctx context.Context, opt PrerendererOption) (html string, err error) {
+func (r *prerenderer) render(ctx context.Context, opt RenderOption) (html string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(opt.Timeout)*time.Second)
 	defer cancel()
 
@@ -104,26 +95,17 @@ func (r *prerenderer) render(ctx context.Context, opt PrerendererOption) (html s
 		}
 	}
 
-	return r.postRender(html)
+	return
 }
 
 func (r *prerenderer) fetchPage(ctx context.Context, rawurl string) (html string, err error) {
 	ct, cancel := chromedp.NewContext(ctx)
 	defer cancel()
 
-	var res string
 	var doc []cdp.NodeID
 	actions := []chromedp.Action{
 		chromedp.Navigate(rawurl),
 		chromedp.NodeIDs("document", &doc, chromedp.ByJSPath),
-		chromedp.EvaluateAsDevTools(r.metaScripts["/"], &res),
-	}
-
-	u, _ := url.Parse(rawurl)
-	metaScript := r.metaScripts[u.Path]
-	if metaScript != "" {
-		var resAdditional string
-		actions = append(actions, chromedp.EvaluateAsDevTools(metaScript, &resAdditional))
 	}
 
 	actions = append(actions, chromedp.ActionFunc(func(ctx context.Context) error {
@@ -133,19 +115,4 @@ func (r *prerenderer) fetchPage(ctx context.Context, rawurl string) (html string
 
 	err = chromedp.Run(ct, actions...)
 	return
-}
-
-func (r *prerenderer) postRender(html string) (string, error) {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		return "", err
-	}
-	if !r.exteralResources {
-		removeExternalResources(doc)
-	}
-	return doc.Html()
-}
-
-func removeExternalResources(doc *goquery.Document) {
-	doc.Find("script,link[rel='stylesheet']").Remove()
 }

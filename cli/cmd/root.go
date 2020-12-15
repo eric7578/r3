@@ -19,8 +19,7 @@ var rootCmd = &cobra.Command{
 	Short: "run r3 server",
 	Run: func(cmd *cobra.Command, args []string) {
 		d := r3.NewDaemon(r3.DaemonOption{
-			ConfigDir:         configDir,
-			ExternalResources: externalResources,
+			ConfigDir: configDir,
 		})
 		d.Run(port)
 	},

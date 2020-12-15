@@ -10,44 +10,47 @@ import (
 )
 
 type DaemonOption struct {
-	ConfigDir         string
-	ExternalResources bool
+	ConfigDir string
 }
 
 type Daemon struct {
-	renderer *prerenderer
+	pre *prerenderer
 }
 
 func NewDaemon(opt DaemonOption) *Daemon {
 	r := &prerenderer{
-		configDir:        opt.ConfigDir,
-		metaScripts:      make(map[string]string),
-		exteralResources: opt.ExternalResources,
+		configDir:   opt.ConfigDir,
+		metaScripts: make(map[string]string),
 	}
 	go r.watchConfigFiles(context.TODO())
 	return &Daemon{
-		renderer: r,
+		pre: r,
 	}
 }
 
 func (d *Daemon) Run(port string) {
 	r := gin.Default()
-	r.GET("/prerender", d.prerenderHandler)
+	r.GET("/", d.renderHandler)
 	r.Run(port)
 }
 
-func (d *Daemon) prerenderHandler(c *gin.Context) {
-	var opt PrerendererOption
+type RenderOption struct {
+	Source            string `form:"src" binding:"required"`
+	ExternalResources bool   `form:"extres,default=true"`
+	EmbeddedCSS       bool   `form:"embcss,default=false"`
+	Timeout           int    `form:"timeout,default=30"`
+	Repeat            int    `form:"repeat,default=1"`
+}
+
+func (d *Daemon) renderHandler(c *gin.Context) {
+	var opt RenderOption
 	if err := c.BindQuery(&opt); err != nil {
 		c.String(http.StatusBadRequest, err.Error())
 		return
-	} else if !isURL(opt.Source) {
-		c.String(http.StatusBadRequest, "invalid prerenderer source url")
-		return
 	}
 
-	// using prerenderer
-	html, err := d.renderer.render(c.Request.Context(), opt)
+	// using prerenderers
+	html, err := d.pre.render(c.Request.Context(), opt)
 	if err != nil {
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
