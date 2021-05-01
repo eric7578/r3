@@ -1,7 +1,15 @@
 package main
 
-import "github.com/eric7578/r3/cli/cmd"
+import (
+	"context"
+	"time"
+
+	"github.com/eric7578/r3"
+)
 
 func main() {
-	cmd.Execute()
+	d := r3.Daemon{
+		RendererAwake: time.Second * 30,
+	}
+	d.Run(context.Background(), ":8080")
 }

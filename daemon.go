@@ -4,53 +4,36 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-type DaemonOption struct {
-	ConfigDir string
-}
-
 type Daemon struct {
-	pre *prerenderer
+	RendererAwake time.Duration
 }
 
-func NewDaemon(opt DaemonOption) *Daemon {
-	r := &prerenderer{
-		configDir:   opt.ConfigDir,
-		metaScripts: make(map[string]string),
-	}
-	go r.watchConfigFiles(context.TODO())
-	return &Daemon{
-		pre: r,
-	}
-}
+func (d *Daemon) Run(ctx context.Context, port string) {
+	go startRenderActiivity(ctx, d.RendererAwake)
 
-func (d *Daemon) Run(port string) {
 	r := gin.Default()
-	r.GET("/", d.renderHandler)
+	r.POST("/", d.renderHandler)
 	r.Run(port)
 }
 
-type RenderOption struct {
-	Source            string `form:"src" binding:"required"`
-	ExternalResources bool   `form:"extres,default=true"`
-	EmbeddedCSS       bool   `form:"embcss,default=false"`
-	Timeout           int    `form:"timeout,default=30"`
-	Repeat            int    `form:"repeat,default=1"`
-}
-
 func (d *Daemon) renderHandler(c *gin.Context) {
-	var opt RenderOption
-	if err := c.BindQuery(&opt); err != nil {
+	type RenderBody struct {
+		URL string `json:"url" binding:"required"`
+	}
+
+	var body RenderBody
+	if err := c.BindJSON(&body); err != nil {
 		c.String(http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// using prerenderers
-	html, err := d.pre.render(c.Request.Context(), opt)
+	html, err := Render(RenderRequest{URL: body.URL})
 	if err != nil {
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
@@ -62,15 +45,4 @@ func (d *Daemon) renderHandler(c *gin.Context) {
 	}
 	bytes := []byte(html)
 	c.Data(http.StatusOK, gin.MIMEHTML, bytes)
-}
-
-func isURL(str string) bool {
-	u, err := url.Parse(str)
-	return err == nil && u.Scheme != "" && u.Host != ""
-}
-
-func fatal(err error) {
-	if err != nil {
-		panic(err)
-	}
 }
